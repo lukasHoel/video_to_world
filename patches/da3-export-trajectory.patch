@@ -1,0 +1,116 @@
+diff --git a/src/depth_anything_3/model/utils/gs_renderer.py b/src/depth_anything_3/model/utils/gs_renderer.py
+index 91414d3..886740d 100644
+--- a/src/depth_anything_3/model/utils/gs_renderer.py
++++ b/src/depth_anything_3/model/utils/gs_renderer.py
+@@ -175,6 +175,8 @@ def run_renderer_in_chunk_w_trj_mode(
+ ) -> tuple[
+     torch.Tensor,  # color, "batch view 3 height width"
+     torch.Tensor,  # depth, "batch view height width"
++    torch.Tensor,  # rendered trajectory extrinsics (world2cam), "batch view 4 4"
++    torch.Tensor,  # rendered trajectory intrinsics (unnormalized), "batch view 3 3"
+ ]:
+     cam2world = affine_inverse(as_homogeneous(extrinsics))
+     if input_shape is not None:
+@@ -337,4 +339,7 @@ def run_renderer_in_chunk_w_trj_mode(
+     all_colors = torch.cat(all_colors, dim=1)
+     all_depths = torch.cat(all_depths, dim=1)
+ 
+-    return all_colors, all_depths
++    # Return the rendered images, depths, and the full camera trajectory
++    # (world2cam extrinsics and unnormalized intrinsics) so that callers can
++    # export the exact poses used for the flythrough.
++    return all_colors, all_depths, tgt_extr, tgt_intr
+diff --git a/src/depth_anything_3/utils/export/gs.py b/src/depth_anything_3/utils/export/gs.py
+index 90077cf..46af384 100644
+--- a/src/depth_anything_3/utils/export/gs.py
++++ b/src/depth_anything_3/utils/export/gs.py
+@@ -14,7 +14,9 @@
+ 
+ import os
+ from typing import Literal, Optional
++import json
+ import moviepy.editor as mpy
++import numpy as np
+ import torch
+ 
+ from depth_anything_3.model.utils.gs_renderer import run_renderer_in_chunk_w_trj_mode
+@@ -106,7 +108,7 @@ def export_to_gs_video(
+         trj_mode = "wander"
+         # trj_mode = "dolly_zoom"
+ 
+-    color, depth = run_renderer_in_chunk_w_trj_mode(
++    color, depth, tgt_extr, tgt_intr = run_renderer_in_chunk_w_trj_mode(
+         gaussians=gs_world,
+         extrinsics=tgt_extrs,
+         intrinsics=tgt_intrs,
+@@ -141,8 +143,12 @@ def export_to_gs_video(
+ 
+         fps = 24
+         clip = mpy.ImageSequenceClip(frames, fps=fps)
+-        output_name = f"{idx:04d}_{trj_mode}" if output_name is None else output_name
+-        save_path = os.path.join(export_dir, f"gs_video/{output_name}.mp4")
++
++        # Derive a stable base name for this batch index and use it both
++        # for the video and for the exported camera trajectory so that
++        # external viewers can reproduce the exact flythrough.
++        base_name = f"{idx:04d}_{trj_mode}" if output_name is None else output_name
++        save_path = os.path.join(export_dir, f"gs_video/{base_name}.mp4")
+         # clip.write_videofile(save_path, codec="libx264", audio=False, bitrate="4000k")
+         clip.write_videofile(
+             save_path,
+@@ -151,4 +157,55 @@ def export_to_gs_video(
+             fps=fps,
+             ffmpeg_params=ffmpeg_params,
+         )
++
++        # Export the corresponding camera trajectory as a NeRF-style transforms.json
++        # so that external viewers can reproduce the exact flythrough. We follow
++        # the common convention:
++        #   - global intrinsics in fl_x, fl_y, cx, cy, w, h
++        #   - per-frame "transform_matrix" as camera-to-world (c2w) 4x4 matrices.
++        extr_np = tgt_extr[idx].detach().cpu().numpy()  # (v, 4, 4), world2cam
++        intr_np = tgt_intr[idx].detach().cpu().numpy()  # (v, 3, 3), unnormalized
++
++        # Use the first frame's intrinsics as global intrinsics (typical practice).
++        fx = float(intr_np[0, 0, 0])
++        fy = float(intr_np[0, 1, 1])
++        cx = float(intr_np[0, 0, 2])
++        cy = float(intr_np[0, 1, 2])
++
++        transforms = {
++            "fl_x": fx,
++            "fl_y": fy,
++            "cx": cx,
++            "cy": cy,
++            "w": int(W),
++            "h": int(H),
++            "frames": [],
++        }
++        transforms["scale_factor"] = float(prediction.scale_factor) if prediction.is_metric else 1.0
++
++        num_frames = extr_np.shape[0]
++        # OpenCV (camera looks +Z, Y-down) -> NeRF/OpenGL (camera looks -Z, Y-up)
++        # conversion in the camera frame. For world-to-camera matrices, this is:
++        #   w2c_cv : world_cv -> cam_cv
++        #   F      : cam_cv  -> cam_gl  (diag(1, -1, -1, 1))
++        #   w2c_gl = F @ w2c_cv
++        # so c2w_gl = inv(w2c_gl) = inv(F @ w2c_cv) = c2w_cv @ F.
++        F = np.eye(4, dtype=np.float32)
++        F[1, 1] = -1.0
++        F[2, 2] = -1.0
++        for fi in range(num_frames):
++            # Convert world2cam (OpenCV) to cam2world in NeRF/OpenGL convention.
++            c2w_cv = np.linalg.inv(extr_np[fi])
++            c2w = c2w_cv @ F
++            transforms["frames"].append(
++                {
++                    # We don't have per-frame image files here; use a synthetic name.
++                    "file_path": f"{base_name}_frame_{fi:04d}.png",
++                    "transform_matrix": c2w.tolist(),
++                }
++            )
++
++        tf_path = os.path.join(export_dir, f"gs_video/{base_name}_transforms.json")
++        with open(tf_path, "w") as f:
++            json.dump(transforms, f, indent=2)
+     return

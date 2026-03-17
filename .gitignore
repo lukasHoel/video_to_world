@@ -1,0 +1,35 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data and outputs
+*.ply
+*.npz
+*.pt
+*.pth
+exports/
+tensorboard/
+runs/
+
+# Third-party checkouts
+third_party/
+
+# Logs
+*.log
