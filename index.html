@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="World Reconstruction From Inconsistent Views">
+  <meta name="keywords" content="world generation, scene generation, 3D reconstruction, 3D generation, diffusion models, video diffusion, neural rendering">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>World Reconstruction From Inconsistent Views</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/bulma-carousel.min.js"></script>
+  <script src="./static/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+<nav class="navbar" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+  <div class="navbar-menu">
+    <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
+      <a class="navbar-item" href="https://lukashoel.github.io/">
+      <span class="icon">
+          <i class="fas fa-home"></i>
+      </span>
+      </a>
+
+      <div class="navbar-item has-dropdown is-hoverable">
+        <a class="navbar-link">
+          More Research
+        </a>
+        <div class="navbar-dropdown">
+          <a class="navbar-item" href="https://mschneider456.github.io/world-explorer/">
+            WorldExplorer
+          </a>
+          <a class="navbar-item" href="https://lukashoel.github.io/text-to-room/">
+            Text2Room
+          </a>
+          <a class="navbar-item" href="https://lukashoel.github.io/ViewDiff/">
+            ViewDiff
+          </a>
+          <a class="navbar-item" href="https://lukashoel.github.io/3DGS-LM/">
+            3DGS-LM
+          </a>
+          <a class="navbar-item" href="https://lukashoel.github.io/stylemesh/">
+            StyleMesh
+          </a>
+          <a class="navbar-item" href="https://niessnerlab.org/publications.html">
+            TUM Visual Computing
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">World Reconstruction From Inconsistent Views</h1>
+          <h2 class="title is-5 publication-title">arXiv 2026</h2>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <a href="https://lukashoel.github.io/">Lukas Höllein</a>,
+            </span>
+            <span class="author-block">
+              <a href="https://niessnerlab.org/members/matthias_niessner/profile.html">Matthias Nießner</a>
+            </span>
+          </div>
+
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">Technical University of Munich</span>
+          </div>
+
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <!-- PDF Link (Original) -->
+              <span class="link-block">
+                <a href="static/images/world_reconstruction_from_inconsisten_views.pdf"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fas fa-file-pdf"></i>
+                  </span>
+                  <span>Paper</span>
+                </a>
+              </span>
+              <!-- arXiv Link. -->
+              <span class="link-block">
+                <a href=""
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="ai ai-arxiv"></i>
+                  </span>
+                  <span>arXiv</span>
+                </a>
+              </span>
+              <!-- Video Link. -->
+              <span class="link-block">
+                <a href="https://www.youtube.com/watch?v=E4AU7G-WyMI"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-youtube"></i>
+                  </span>
+                  <span>Video</span>
+                </a>
+              </span>
+              <!-- Code Link. -->
+              <span class="link-block">
+                <a href="https://github.com/lukasHoel/video_to_world"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-github"></i>
+                  </span>
+                  <span>Code</span>
+                  </a>
+              </span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="hero teaser">
+  <div class="container is-max-desktop">
+    <div class="hero-body">
+      <img src="static/images/teaser_video.png" alt="WorldExplorer Teaser">
+      <h2 class="subtitle has-text-centered">
+        Our method reconstructs 3D worlds from video diffusion models using non-rigid alignment to resolve inherent 3D inconsistencies in the generated sequences.
+      </h2>
+      <video autoplay controls muted loop height="100%">
+        <source src="static/images/teaser.mp4"
+                type="video/mp4">
+      </video>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Abstract. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            Video diffusion models generate high-quality and diverse worlds; however, individual frames often lack 3D consistency across the output sequence, which makes the reconstruction of 3D worlds difficult. To this end, we propose a new method that handles these inconsistencies by non-rigidly aligning the video frames into a globally-consistent coordinate frame that produces sharp and detailed pointcloud reconstructions. First, a geometric foundation model lifts each frame into a pixel-wise 3D pointcloud, which contains unaligned surfaces due to these inconsistencies. We then propose a tailored non-rigid iterative frame-to-model ICP to obtain an initial alignment across all frames, followed by a global optimization that further sharpens the pointcloud. Finally, we leverage this pointcloud as initialization for 3D reconstruction and propose a novel inverse deformation rendering loss to create high quality and explorable 3D environments from inconsistent views. We demonstrate that our 3D scenes achieve higher quality than baselines, effectively turning video models into 3D-consistent world generators.
+          </p>
+        </div>
+      </div>
+    </div>
+    <!--/ Abstract. -->
+
+    <!-- Paper video. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Video</h2>
+        <div class="publication-video">
+          <!-- <iframe src="https://www.youtube.com/embed/E4AU7G-WyMI" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe> -->
+           <iframe src="https://www.youtube.com/embed/E4AU7G-WyMI?si=fEDvdDiaAYi1Ajpj" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+        </div>
+      </div>
+    </div>
+    <!--/ Paper video. -->
+
+    <!-- Method details. -->
+    <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+            <h2 class="title is-3">Three-Stage World Reconstruction</h2>
+            <div class="content has-text-justified">
+                <p class="has-text-centered">
+                    <img src="static/images/method.png" alt="method overview" style="display: inline-block; max-width: 100%;">
+                </p>
+                <p>
+                    We propose a three stage method that reconstructs a 2DGS scene from generated videos.
+                </p>
+
+                <p>
+                    First, we estimate multi-view depth and cameras with a geometric foundation model.
+                    The resulting dense scene initialization is unaligned (multiple non-overlapping surfaces) due to the inconsistent input frames.
+                </p>
+
+                <p>
+                    We propose a tailored non-rigid geometry alignment that leverages iterative frame-to-model ICP and sparse correspondences, followed by global optimization, to create thin surfaces with detailed textures.
+                </p>
+
+                <p>
+                    Then, we leverage the alignment in a novel non-rigid aware 2DGS optimization to obtain high-quality, consistent 3D worlds.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+            <h2 class="title is-3">Iterative frame-to-model ICP</h2>
+            <div class="content has-text-justified">
+            <p>
+                We visualize the iterative frame-to-model ICP process.
+                In orange is the next frame before alignment, in green the next frame after alignment.
+                By repeating the iterative process across all input frames, we obtain a canonical pointcloud geometry with aligned surfaces in a single world space.
+            </p>
+            <video autoplay controls muted loop height="100%">
+                <source src="static/images/growth.mp4" type="video/mp4">
+            </video>
+            </div>
+        </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Single Video 3D Reconstruction</h2>
+        <div class="content has-text-justified">
+          <p>
+              We compare our method against recent 3D reconstruction methods on the generated frames from multiple state-of-the-art video diffusion models.
+              Concretely, we generate single video sequences depicting various indoor/outdoor scenes and camera motions from text with Wan-2.2 and with camera-control using ViewCrafter, Gen3C, Seva, and Voyager.
+              We additionally adopt the recent autoregressive world generators Genie3 and HY-WorldPlay.
+              We reconstruct 3D scenes from N=50 images sampled from these videos with various baselines.
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="columns is-centered">
+      <div class="column">
+        <div id="input-videos-carousel" class="results-carousel results-vertical">
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/ViewCrafter.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with ViewCrafter.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/SEVA.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with SEVA.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/HY-WorldPlay.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with HY-WorldPlay.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/Genie3.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with Genie3.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/Gen3C.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with Gen3C.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/Voyager.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with Voyager.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/Wan.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with Wan-2.2.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Large-Scale World Generation</h2>
+        <div class="content has-text-justified">
+            <p>
+                A single generated video is limited in the amount of scene exploration it can show.
+                Recent works exploit VDMs autoregressively to generate multiple sequences that depict entire 360 degree scenes.
+                We compare against WorldExplorer and VGGT-X by generating and then reconstructing up to 32 video sequences with SEVA via the progressive scene expansion strategy of WorldExplorer.
+            </p>
+        </div>
+      </div>
+    </div>
+    <div class="columns is-centered">
+      <div class="column">
+        <div id="recon-examples-carousel" class="results-carousel results-vertical">
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/chocolate.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with WorldExplorer / SEVA.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/industrial.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with WorldExplorer / SEVA.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/honey.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with WorldExplorer / SEVA.</p>
+          </div>
+          <div class="item">
+            <video autoplay controls muted height="100%">
+              <source src="static/images/celestial.mp4" type="video/mp4">
+            </video>
+            <p class="results-caption">Input video generated with WorldExplorer / SEVA.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="hero is-light is-small">
+  <div class="hero-body">
+    <div class="container">
+        <h2 class="title is-3">Interactive 3DGS Viewer</h2>
+
+        <div class="content has-text-justified">
+            <p>
+                We provide an interactive viewer of large-scale 3D worlds generated with our method.
+                Here, we trained a 3DGS scene instead of 2DGS to better support online viewers.
+                Note that the files are slightly compressed using the .sog format to reduce the file size.
+            </p>
+        </div>
+
+        <button id="load-scene-btn" class="button is-primary is-large">Load Scene</button>
+        <div class="select">
+            <select id="scene-selector">
+                <option value="https://kaldir.vc.in.tum.de/hoellein/video_to_world/celestial.sog">Celestial</option>
+                <option value="https://kaldir.vc.in.tum.de/hoellein/video_to_world/chocolate.sog">Chocolate</option>
+            </select>
+        </div>
+
+        <!-- File Size Display -->
+        <script>
+            async function formatFileSize(bytes) {
+                if (bytes === 0) return "0 B";
+                const units = ["B", "KB", "MB", "GB", "TB"];
+                const i = Math.floor(Math.log(bytes) / Math.log(1024));
+                return (bytes / Math.pow(1024, i)).toFixed(2) + " " + units[i];
+            }
+
+            async function updateDropdownWithSizes() {
+                const select = document.getElementById("scene-selector");
+                const options = Array.from(select.options);
+
+                for (const option of options) {
+                    try {
+                        const response = await fetch(option.value, { method: "HEAD" });
+                        const length = response.headers.get("Content-Length");
+
+                        if (length) {
+                            const size = await formatFileSize(parseInt(length, 10));
+                            option.textContent += ` (${size})`;
+                        } else {
+                            option.textContent += " (Size unknown)";
+                        }
+                    } catch (error) {
+                        console.error(`Error fetching size for ${option.value}:`, error);
+                        option.textContent += " (Error)";
+                    }
+                }
+            }
+
+            // Run after page loads
+            document.addEventListener("DOMContentLoaded", updateDropdownWithSizes);
+        </script>
+
+        <!-- Viewer Section -->
+        <section id="viewer-section" class="section" style="display:none; position:relative;">
+            <div id="loading-overlay" style="
+                position:absolute; top:0; left:0; width:100%; height:100%;
+                background:rgba(0,0,0,0.0); color:black; display:flex;
+                justify-content:center; align-items:center; font-size:2.5em;
+                z-index:10;">
+                Loading... <span id="progress-text">0%</span>
+            </div>
+            <canvas id="viewer-canvas" style="width:100%; height:100%; display:block;"></canvas>
+        </section>
+
+        <!-- 3D Viewer Scripts -->
+        <script type="importmap">
+        {
+        "imports": {
+            "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.178.0/three.module.js",
+            "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.10/spark.module.js"
+        }
+        }
+        </script>
+
+        <script type="module">
+            import * as THREE from "three";
+            import { SplatMesh, SparkControls, SplatLoader } from "@sparkjsdev/spark";
+
+            let renderer;
+            let currentMesh = null;
+            let firstLoad = true; // Track if it's the first time loading
+
+            const scene = new THREE.Scene();
+            const canvas = document.getElementById('viewer-canvas');
+            
+            // make visible s.t. we get correct size for renderer
+            document.getElementById('viewer-section').style.display = 'block';
+            
+            const container = canvas.parentElement;
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            // make invisible again until we actually press the load button for first time
+            document.getElementById('viewer-section').style.display = 'none';
+
+            document.getElementById('load-scene-btn').addEventListener('click', () => {
+                if (firstLoad) {
+                    document.getElementById('viewer-section').style.display = 'block';
+                    firstLoad = false;
+                }
+
+                const loader = new SplatLoader();
+                const sceneName = document.getElementById('scene-selector').value;
+                loader.loadAsync(sceneName, (event) => {
+                    if (event.type === "progress") {
+                        const progress = event.lengthComputable
+                            ? `${((event.loaded / event.total) * 100).toFixed(2)}%`
+                            : `${event.loaded} bytes`;
+                        document.getElementById('progress-text').textContent = progress;
+                        document.getElementById('loading-overlay').style.display = 'flex';
+                    }
+                })
+                .then((packedSplats) => {
+                    document.getElementById('loading-overlay').style.display = 'none';
+
+                    const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+
+                    if (currentMesh) {
+                        scene.remove(currentMesh);
+                    }
+
+                    const splatMesh = new SplatMesh({ packedSplats });
+                    splatMesh.rotation.z = Math.PI;
+                    // splatMesh.rotation.x = Math.PI / 2;
+                    currentMesh = splatMesh;
+                    scene.add(currentMesh);
+
+                    const sparkControls = new SparkControls({ canvas: renderer.domElement });
+
+                    const clock = new THREE.Clock();
+                    renderer.setAnimationLoop(() => {
+                        if (camera.userData.bounds) camera.position.clamp(box.min, box.max);
+                        renderer.render(scene, camera);
+                        sparkControls.update(camera);
+                    });
+
+                    document.getElementById('loading-overlay').style.color = 'white';
+                })
+                .catch(console.warn);
+            });
+        </script>
+
+    </div>
+  </div>
+</section>
+
+<section class="section" id="BibTeX">
+  <div class="container is-max-desktop content">
+    <h2 class="title">BibTeX</h2>
+    <pre><code></code></pre>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="content has-text-centered">
+      <a class="icon-link"
+         href="static/images/world_reconstruction_from_inconsisten_views.pdf">
+        <i class="fas fa-file-pdf"></i>
+      </a>
+      <a class="icon-link" href="https://github.com/lukashoel" class="external-link" disabled>
+        <i class="fab fa-github"></i>
+      </a>
+    </div>
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <p>
+            Website source code borrowed from <a
+              href="https://github.com/nerfies/nerfies.github.io">here</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
