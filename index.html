@@ -348,23 +348,29 @@
 
 <section class="hero is-light is-small">
   <div class="hero-body">
-    <div class="container">
+    <div class="container has-text-centered">
         <h2 class="title is-3">Interactive 3DGS Viewer</h2>
 
         <div class="content has-text-justified">
             <p>
                 We provide an interactive viewer of large-scale 3D worlds generated with our method.
                 Here, we trained a 3DGS scene instead of 2DGS to better support online viewers.
-                Note that the files are slightly compressed using the .sog format to reduce the file size.
+                Note that the scenes are compressed using the .sog format to reduce the file size.
+            </p>
+            <p>
+                Use the dropdown menu to select a scene and click "Load Scene" to visualize it.
+                Navigate the scene with mouse, keyboard, or touch controls:
             </p>
         </div>
 
-        <button id="load-scene-btn" class="button is-primary is-large">Load Scene</button>
-        <div class="select">
-            <select id="scene-selector">
-                <option value="https://kaldir.vc.in.tum.de/hoellein/video_to_world/celestial.sog">Celestial</option>
-                <option value="https://kaldir.vc.in.tum.de/hoellein/video_to_world/chocolate.sog">Chocolate</option>
-            </select>
+        <div style="display: flex; gap: 1rem; align-items: center; justify-content: center; flex-wrap: wrap; margin-bottom: 1.5rem;">
+            <button id="load-scene-btn" class="button is-primary is-large">Load Scene</button>
+            <div class="select is-large">
+                <select id="scene-selector">
+                    <option value="https://kaldir.vc.in.tum.de/hoellein/video_to_world/celestial.sog">Celestial</option>
+                    <option value="https://kaldir.vc.in.tum.de/hoellein/video_to_world/chocolate.sog">Chocolate</option>
+                </select>
+            </div>
         </div>
 
         <!-- File Size Display -->
@@ -403,7 +409,7 @@
         </script>
 
         <!-- Viewer Section -->
-        <section id="viewer-section" class="section" style="display:none; position:relative;">
+        <div id="viewer-section" style="display:none; position:relative; width:100%; height:70vh; min-height:400px; margin: 0 auto;">
             <div id="loading-overlay" style="
                 position:absolute; top:0; left:0; width:100%; height:100%;
                 background:rgba(0,0,0,0.0); color:black; display:flex;
@@ -411,8 +417,8 @@
                 z-index:10;">
                 Loading... <span id="progress-text">0%</span>
             </div>
-            <canvas id="viewer-canvas" style="width:100%; height:100%; display:block;"></canvas>
-        </section>
+            <canvas id="viewer-canvas" style="width:100%; height:100%; display:block; touch-action:none;"></canvas>
+        </div>
 
         <!-- 3D Viewer Scripts -->
         <script type="importmap">
@@ -428,48 +434,66 @@
             import * as THREE from "three";
             import { SplatMesh, SparkControls, SplatLoader } from "@sparkjsdev/spark";
 
-            let renderer;
+            let renderer = null;
+            let camera = null;
+            let sparkControls = null;
             let currentMesh = null;
-            let firstLoad = true; // Track if it's the first time loading
+            let firstLoad = true;
 
             const scene = new THREE.Scene();
             const canvas = document.getElementById('viewer-canvas');
-            
-            // make visible s.t. we get correct size for renderer
-            document.getElementById('viewer-section').style.display = 'block';
-            
-            const container = canvas.parentElement;
-            const width = container.clientWidth;
-            const height = container.clientHeight;
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
-            renderer.setSize(width, height);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            function initRenderer() {
+                const viewerSection = document.getElementById('viewer-section');
+                const width = viewerSection.clientWidth;
+                const height = viewerSection.clientHeight;
 
-            // make invisible again until we actually press the load button for first time
-            document.getElementById('viewer-section').style.display = 'none';
+                renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
+                renderer.setSize(width, height);
+                renderer.setPixelRatio(window.devicePixelRatio);
+
+                camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+                sparkControls = new SparkControls({ canvas: renderer.domElement });
+
+                renderer.setAnimationLoop(() => {
+                    renderer.render(scene, camera);
+                    sparkControls.update(camera);
+                });
+
+                window.addEventListener('resize', () => {
+                    const w = viewerSection.clientWidth;
+                    const h = viewerSection.clientHeight;
+                    renderer.setSize(w, h);
+                    camera.aspect = w / h;
+                    camera.updateProjectionMatrix();
+                });
+            }
 
             document.getElementById('load-scene-btn').addEventListener('click', () => {
+                const viewerSection = document.getElementById('viewer-section');
+
                 if (firstLoad) {
-                    document.getElementById('viewer-section').style.display = 'block';
+                    viewerSection.style.display = 'block';
+                    initRenderer();
                     firstLoad = false;
                 }
 
                 const loader = new SplatLoader();
                 const sceneName = document.getElementById('scene-selector').value;
+
+                document.getElementById('progress-text').textContent = '0%';
+                document.getElementById('loading-overlay').style.display = 'flex';
+
                 loader.loadAsync(sceneName, (event) => {
                     if (event.type === "progress") {
                         const progress = event.lengthComputable
                             ? `${((event.loaded / event.total) * 100).toFixed(2)}%`
                             : `${event.loaded} bytes`;
                         document.getElementById('progress-text').textContent = progress;
-                        document.getElementById('loading-overlay').style.display = 'flex';
                     }
                 })
                 .then((packedSplats) => {
                     document.getElementById('loading-overlay').style.display = 'none';
-
-                    const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
 
                     if (currentMesh) {
                         scene.remove(currentMesh);
@@ -477,20 +501,8 @@
 
                     const splatMesh = new SplatMesh({ packedSplats });
                     splatMesh.rotation.z = Math.PI;
-                    // splatMesh.rotation.x = Math.PI / 2;
                     currentMesh = splatMesh;
                     scene.add(currentMesh);
-
-                    const sparkControls = new SparkControls({ canvas: renderer.domElement });
-
-                    const clock = new THREE.Clock();
-                    renderer.setAnimationLoop(() => {
-                        if (camera.userData.bounds) camera.position.clamp(box.min, box.max);
-                        renderer.render(scene, camera);
-                        sparkControls.update(camera);
-                    });
-
-                    document.getElementById('loading-overlay').style.color = 'white';
                 })
                 .catch(console.warn);
             });
