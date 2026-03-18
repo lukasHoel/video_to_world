@@ -3,12 +3,21 @@ Our method reconstructs 3D worlds from video diffusion models using non-rigid al
 
 This is the official repository that contains source code for the paper *World Reconstruction From Inconsistent Views*.
 
-[[arXiv](TODO)] [[Project Page](https://lukashoel.github.io/video_to_world/)] [[Video](https://www.youtube.com/watch?v=qXnUwhVmBzA)]
+[[arXiv](https://arxiv.org/abs/2603.16736)] [[Project Page](https://lukashoel.github.io/video_to_world/)] [[Video](https://www.youtube.com/watch?v=qXnUwhVmBzA)]
 
 ![Teaser](./assets/teaser.jpg)
 
 If you find World Reconstruction From Inconsistent Views useful for your work please cite:
 ```
+@misc{hoellein2026worldreconstructioninconsistentviews,
+      title={World Reconstruction From Inconsistent Views}, 
+      author={Lukas H{\"o}llein and Matthias Nie{\ss}ner},
+      year={2026},
+      eprint={2603.16736},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2603.16736}, 
+}
 ```
 
 ## Prepare Environment
