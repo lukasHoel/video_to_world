@@ -265,6 +265,11 @@ They can be modified via CLI parameters for detailed configuration of the indivi
 | `configs/stage3_inverse_deformation.py` | 3.1 | Inverse deformation |
 | `configs/stage3_gs.py` | 3.2 | Gaussian splatting (2DGS / 3DGS) |
 
+## Data Release
+
+The scenes that we show in the paper can be downloaded [here](https://kaldir.vc.in.tum.de/hoellein/video_to_world/data_release.zip).
+The subfolder ```vdm``` contains the generated videos of different video models, while the subfolder ```worldexplorer``` contains the frames for five sample scenes generated with [WorldExplorer](https://github.com/mschneider456/worldexplorer).
+
 ## Acknowledgements
 
 Our work builds on top of amazing open-source projects. We thank the authors for making their code available.
