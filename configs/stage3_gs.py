@@ -116,9 +116,20 @@ class GSConfig(TensorboardConfig):
     """Filename (inside `out_dir`) that requests an on-demand checkpoint save + export
     WITHOUT pausing training. Training continues immediately after saving."""
 
-    preview_save_every: int = 1000
+    preview_save_every: int = 100
     """Save a lightweight `preview_checkpoint.pt` (latest-only, overwritten) every N
     iterations for live viewing. 0 disables preview saves."""
+
+    # ---- Auto viewer (viser/nerfview live 3D) ----
+    auto_viewer: bool = True
+    """Automatically launch the interactive 3D viewer (viser) when GS training starts.
+    The viewer opens in watch mode and hot-reloads as checkpoints are saved."""
+
+    viewer_port: int = 8080
+    """Port for the auto-launched 3D viewer server."""
+
+    viewer_host: str = "0.0.0.0"
+    """Host address for the auto-launched 3D viewer server."""
 
     skip_auto_eval_on_stop: bool = True
     """Skip the expensive automatic eval render when stopped early via

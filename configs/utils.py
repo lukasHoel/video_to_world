@@ -57,7 +57,7 @@ class ViewGSCheckpointConfig:
     the scene automatically (new `checkpoint_*.pt`, `preview_checkpoint.pt`,
     `checkpoint_paused.pt`, or `model_final.pt`)."""
 
-    watch_interval: float = 5.0
+    watch_interval: float = 2.0
     """Polling interval (seconds) in watch mode."""
 
     wait_for_first: bool = False
