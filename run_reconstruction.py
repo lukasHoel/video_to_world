@@ -26,6 +26,7 @@ from configs.stage1_align import FrameToModelICPConfig
 from configs.stage2_global_optimization import GlobalOptimizationConfig
 from configs.stage3_gs import GSConfig
 from configs.stage3_inverse_deformation import TrainInverseDeformationConfig
+from configs.utils import ExportGSCheckpointToPlyConfig
 
 
 @dataclass
@@ -113,6 +114,13 @@ class PipelineConfig:
 
     gs: GSConfig = field(default_factory=GSConfig)
     """Stage 3.2: Gaussian splatting training (base config, renderer set per run)."""
+
+    export_supersplat: bool = True
+    """After GS training, export SuperSplat-compatible Gaussian splats (.ply + .splat)
+    into each `gs_<renderer>/` checkpoint directory (see `utils.export_checkpoint_to_ply`)."""
+
+    export_max_points: int = -1
+    """If > 0, subsample exported splats to at most this many points (SuperSplat-friendly size)."""
 
     dry_run: bool = False
     """Print commands without executing."""
@@ -442,6 +450,27 @@ def main(config: PipelineConfig) -> None:
             )
         )
         _run(stage32_cmd, config.dry_run)
+
+        if config.export_supersplat:
+            print(f"[PIPELINE] === Stage 3.3: Export SuperSplat splats ({renderer.upper()}) ===")
+            gs_out_dir = os.path.join(root_path, run_name, f"gs_{renderer}")
+            export_cfg = ExportGSCheckpointToPlyConfig(
+                root_path=root_path,
+                run=run_name,
+                checkpoint_dir=gs_out_dir,
+                global_opt_subdir=gs_global_opt_subdir,
+                format="both",
+                max_points=config.export_max_points,
+            )
+            export_cmd = [python, "-m", "utils.export_checkpoint_to_ply"]
+            export_cmd += list(
+                _iter_config_overrides(
+                    prefix="config",
+                    cfg=export_cfg,
+                    defaults=ExportGSCheckpointToPlyConfig(),
+                )
+            )
+            _run(export_cmd, config.dry_run)
 
     if "2dgs" in effective_renderers:
         _run_gs("2dgs")

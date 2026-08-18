@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import TYPE_CHECKING
 import subprocess
 import sys
@@ -33,6 +34,7 @@ from losses import init_lpips
 from models.canonical_gs_model import CanonicalGSModel, sh0_to_rgb
 from utils.export_checkpoint_to_ply import (
     ExportGSCheckpointToPlyConfig,
+    export_model_to_files,
     main as export_gs_checkpoint_to_ply,
 )
 from utils.downsample import downsample_to_target
@@ -44,6 +46,97 @@ logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from torch.utils.tensorboard import SummaryWriter
+
+
+# ==========================================================================
+# Live control sentinels (pause / resume / stop-early)
+# ==========================================================================
+
+
+def _sentinel_paths(config: GSConfig) -> tuple[str, str, str, str]:
+    return (
+        os.path.join(config.out_dir, config.pause_request_file),
+        os.path.join(config.out_dir, config.resume_request_file),
+        os.path.join(config.out_dir, config.stop_request_file),
+        os.path.join(config.out_dir, config.checkpoint_request_file),
+    )
+
+
+def _export_current_state(model, config: GSConfig, renderer: str) -> None:
+    """Export the in-memory model to PLY + .splat (current training state)."""
+    try:
+        export_model_to_files(
+            model,
+            renderer=renderer,
+            out_ply=os.path.join(config.out_dir, f"splats_{renderer}.ply"),
+            out_splat=os.path.join(config.out_dir, f"splats_{renderer}.splat"),
+        )
+        logger.info("Exported current training state to splats_%s.ply/.splat", renderer)
+    except Exception as exc:
+        logger.error("Failed to export current training state: %s", exc)
+
+
+@torch.no_grad()
+def _handle_control_sentinels(model, config: GSConfig, renderer: str, it: int) -> bool:
+    """Check pause/stop sentinels; block while paused.
+
+    Returns True if training should stop early (STOP_REQUESTED seen).
+    """
+    pause_path, resume_path, stop_path, ckpt_req_path = _sentinel_paths(config)
+
+    # Stop requested -> save current state, export, and break the loop.
+    if os.path.exists(stop_path):
+        logger.info("STOP_REQUESTED detected at iter %d — finalizing early.", it)
+        ckpt_path = os.path.join(config.out_dir, "checkpoint_stopped.pt")
+        torch.save(model.state_dict(), ckpt_path)
+        logger.info("Saved stopped checkpoint: %s", ckpt_path)
+        _export_current_state(model, config, renderer)
+        try:
+            os.remove(stop_path)
+        except OSError:
+            pass
+        return True
+
+    # Checkpoint requested -> save + export, then continue (no pause).
+    if os.path.exists(ckpt_req_path):
+        logger.info("CHECKPOINT_REQUESTED detected at iter %d — saving checkpoint.", it)
+        ckpt_path = os.path.join(config.out_dir, "checkpoint_requested.pt")
+        torch.save(model.state_dict(), ckpt_path)
+        logger.info("Saved requested checkpoint: %s", ckpt_path)
+        _export_current_state(model, config, renderer)
+        try:
+            os.remove(ckpt_req_path)
+        except OSError:
+            pass
+
+    # Pause requested -> save + export, then wait for RESUME_REQUESTED (or
+    # deletion of the pause file, or a stop request).
+    if os.path.exists(pause_path):
+        logger.info("PAUSE_REQUESTED detected at iter %d — pausing.", it)
+        ckpt_path = os.path.join(config.out_dir, "checkpoint_paused.pt")
+        torch.save(model.state_dict(), ckpt_path)
+        logger.info("Saved paused checkpoint: %s", ckpt_path)
+        _export_current_state(model, config, renderer)
+        while True:
+            if os.path.exists(stop_path):
+                logger.info("STOP_REQUESTED during pause — finalizing early.")
+                for sentinel in (stop_path, pause_path):
+                    try:
+                        os.remove(sentinel)
+                    except OSError:
+                        pass
+                return True
+            if os.path.exists(resume_path) or not os.path.exists(pause_path):
+                logger.info("Resuming training.")
+                try:
+                    if os.path.exists(resume_path):
+                        os.remove(resume_path)
+                except OSError:
+                    pass
+                return False
+            time.sleep(1.0)
+
+    return False
 
 
 # ==========================================================================
@@ -353,8 +446,14 @@ def main(config: GSConfig):
     is_2dgs = config.renderer == "2dgs"
     model.train()
     pbar = tqdm(range(config.num_iters), desc=f"GS training ({config.renderer})")
+    stop_requested = False
 
     for it in pbar:
+        # Live control: pause / stop-early sentinel files.
+        if it % config.control_check_every == 0:
+            if _handle_control_sentinels(model, config, config.renderer, it):
+                stop_requested = True
+                break
         if config.sh_full_from_iter > 0 and it == config.sh_full_from_iter:
             for p in model.per_frame_c2w.parameters():
                 p.requires_grad = False
@@ -488,6 +587,13 @@ def main(config: GSConfig):
             torch.save(model.state_dict(), ckpt_path)
             logger.info("Saved checkpoint: %s", ckpt_path)
 
+        # ---------- Live preview save (overwritten, latest-only) ----------
+        if config.preview_save_every > 0 and it > 0 and it % config.preview_save_every == 0:
+            preview_path = os.path.join(config.out_dir, "preview_checkpoint.pt")
+            tmp_path = preview_path + ".tmp"
+            torch.save(model.state_dict(), tmp_path)
+            os.replace(tmp_path, preview_path)
+
         # ---------- Eval ----------
         if (it > 0 and it % config.eval_every == 0) or it == config.num_iters - 1:
             _evaluate(
@@ -506,7 +612,10 @@ def main(config: GSConfig):
     # ------------------------------------------------------------------
     final_path = os.path.join(config.out_dir, "model_final.pt")
     torch.save(model.state_dict(), final_path)
-    logger.info("Training complete.  Final model: %s", final_path)
+    if stop_requested:
+        logger.info("Early stop requested — finalized at current state. Final model: %s", final_path)
+    else:
+        logger.info("Training complete.  Final model: %s", final_path)
 
     final_pts = model.canonical_points.detach().cpu().numpy()
     if hasattr(model, "sh_coeffs") and model.sh_coeffs is not None:
@@ -541,7 +650,7 @@ def main(config: GSConfig):
     # ------------------------------------------------------------------
     # 9. Optional automatic evaluation
     # ------------------------------------------------------------------
-    if config.auto_eval:
+    if config.auto_eval and not (stop_requested and config.skip_auto_eval_on_stop):
         cmd = [
             sys.executable,
             "-m",

@@ -231,7 +231,7 @@ python -m eval_gs \
 
 ## Utilities
 
-### Export a trained 3DGS checkpoint to PLY
+### Export a trained 2DGS/3DGS checkpoint to SuperSplat-compatible splats
 
 ```bash
 python -m utils.export_checkpoint_to_ply \
@@ -240,7 +240,13 @@ python -m utils.export_checkpoint_to_ply \
     --config.checkpoint-dir <align_run>/gs_<renderer>
 ```
 
-**Output**: a 3DGS PLY file at `--config.out-ply` (default: `<align_run>/gs_3dgs/splats_3dgs.ply`).
+**Outputs** (both written by default, `--config.format [ply|splat|both]`):
+- a standard 3DGS PLY at `<align_run>/gs_<renderer>/splats_<renderer>.ply`
+- a compact Antimatter15/PlayCanvas `.splat` at `<align_run>/gs_<renderer>/splats_<renderer>.splat`
+
+Both formats are directly importable into the [SuperSplat editor](https://superspl.at/editor) (and PlayCanvas / three.js viewers). 2DGS scenes are exported without `scale_2` plus a `SplatRenderMode: 2dgs` header comment so SuperSplat renders them as zero-thickness surfels. Use `--config.max-points <N>` (and `--config.seed`) to subsample for SuperSplat-friendly file sizes.
+
+The end-to-end pipeline (`run_reconstruction.py`) runs this export automatically after each GS training run.
 
 ### View a checkpoint (interactive)
 
@@ -269,6 +275,100 @@ They can be modified via CLI parameters for detailed configuration of the indivi
 
 The scenes that we show in the paper can be downloaded [here](https://kaldir.vc.in.tum.de/hoellein/video_to_world/data_release.zip).
 The subfolder ```vdm``` contains the generated videos of different video models, while the subfolder ```worldexplorer``` contains the frames for five sample scenes generated with [WorldExplorer](https://github.com/mschneider456/worldexplorer).
+
+## Pinokio Integration
+
+This fork adds a **Gradio Web UI** with live 3D preview, training controls, and export — designed to work as a [Pinokio](https://pinokio.computer/) app.
+
+### Installing as a Pinokio App
+
+1. Open Pinokio and click **Discover**
+2. Search for **Video2World** or clone manually:
+   ```
+   git clone https://github.com/hoodtronik/Video2World.git
+   ```
+3. Pinokio will run `install.js` to set up the `app/env` virtual environment
+4. Click **Start** to launch the Gradio Web UI
+
+### Integrating into an Existing Pinokio Install
+
+If you already have a Pinokio Video2World install and want these upgrades:
+
+1. **Back up your outputs** — copy the `app/outputs/` folder somewhere safe
+2. Replace the `app/` directory with the upgraded version:
+   ```bash
+   cd /path/to/Video2World
+   # Save outputs
+   cp -r app/outputs app/outputs_backup
+   # Replace app code
+   rm -rf app
+   # Copy the upgraded app/ folder here
+   cp -r /path/to/upgraded_app app/
+   # Restore outputs
+   mv app/outputs_backup app/outputs
+   ```
+3. Or simply re-install via Pinokio's **Re-Install** button
+
+### What's New (Fork Additions)
+
+#### Gradio Web UI (`app.py` at repo root)
+- **Reconstruct tab**: Upload video, configure settings, run pipeline
+- **Resume Previous Job**: Resume interrupted pipelines (auto-skips completed stages)
+- **3D Viewer tab**: Interactive viser-based 3D viewer with live training preview
+- **Gallery tab**: Browse completed reconstructions
+
+#### Live Training Controls (via sentinel files)
+Pause, resume, stop-early, or export during GS training — all without killing the process:
+
+| Button | Sentinel File | Effect |
+|--------|--------------|--------|
+| Pause Training | `PAUSE_REQUESTED` | Saves `checkpoint_paused.pt` + exports PLY/splat, waits |
+| Resume Training | `RESUME_REQUESTED` | Removes pause sentinel, training continues |
+| Save Checkpoint | `CHECKPOINT_REQUESTED` | Saves `checkpoint_requested.pt` + exports, no pause |
+| Stop & Finalize | `STOP_REQUESTED` | Saves + exports + finalizes early (skips long auto-eval) |
+| Export Current | `EXPORT_REQUEST` | Viewer exports its in-memory state to PLY/splat |
+
+#### Live Viewer (watch mode)
+```bash
+python -m utils.view_checkpoint \
+    --config.checkpoint-dir <align_run>/gs_<renderer> \
+    --config.watch \
+    --config.watch-interval 5.0 \
+    --config.export-on-load both
+```
+Hot-reloads as new checkpoints are saved. The Gradio UI embeds this as an iframe.
+
+#### On-Demand Export
+```bash
+python -m utils.export_checkpoint_to_ply \
+    --config.checkpoint-dir <align_run>/gs_<renderer>
+```
+Reads the latest checkpoint (`model_final.pt` > `checkpoint_stopped.pt` > `checkpoint_paused.pt` > `checkpoint_*.pt` > `preview_checkpoint.pt`) and writes SuperSplat-compatible PLY + .splat.
+
+#### Preview Checkpoint Saves
+`train_gs` writes `preview_checkpoint.pt` (overwritten) every N iterations (default: 1000) for live viewing without interrupting training.
+
+### File Layout
+
+```
+Video2World/
+├── app.py                    # Gradio Web UI (Pinokio entry point)
+├── pinokio.js                # Pinokio menu config
+├── start.js                  # Pinokio launch script
+├── install.js                # Pinokio install script
+└── app/                      # Core pipeline code (git submodule)
+    ├── env/                  # Python virtual environment
+    ├── outputs/              # Reconstruction outputs
+    ├── configs/              # Dataclass configs
+    │   ├── stage3_gs.py      # GSConfig (sentinel + preview settings)
+    │   └── utils.py          # ViewGSCheckpointConfig, ExportGSCheckpointToPlyConfig
+    ├── train_gs.py           # GS training + sentinel handlers
+    ├── eval_gs.py            # Evaluation + _find_checkpoint_path
+    ├── utils/
+    │   ├── view_checkpoint.py    # Interactive viewer (watch mode)
+    │   └── export_checkpoint_to_ply.py  # PLY/splat export
+    └── run_reconstruction.py     # Full pipeline orchestrator
+```
 
 ## Acknowledgements
 
