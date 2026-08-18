@@ -37,7 +37,7 @@ class ViewGSCheckpointConfig:
     root_path: str = ""
     run: str = ""
     checkpoint_dir: str = ""
-    global_opt_subdir: str = "after_global_optimization"
+    global_opt_subdir: str = ""
 
     port: int = 8080
     """Viewer web port (Viser)."""
