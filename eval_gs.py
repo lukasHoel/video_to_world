@@ -35,17 +35,28 @@ from utils.downsample import downsample_to_target
 
 
 def _find_checkpoint_path(checkpoint_dir: str) -> str:
-    """Pick the final GS checkpoint file from a directory."""
-    final_path = os.path.join(checkpoint_dir, "model_final.pt")
-    if os.path.exists(final_path):
-        return final_path
+    """Pick the best available GS checkpoint file from a directory.
 
-    # Fallback to latest checkpoint_*.pt (if present)
+    Priority: model_final.pt > checkpoint_stopped.pt > checkpoint_paused.pt >
+    checkpoint_*.pt (latest) > preview_checkpoint.pt.
+    """
+    for name in ("model_final.pt", "checkpoint_stopped.pt", "checkpoint_paused.pt"):
+        p = os.path.join(checkpoint_dir, name)
+        if os.path.exists(p):
+            return p
+
+    # Latest checkpoint_*.pt (if present)
     candidates = [f for f in os.listdir(checkpoint_dir) if f.startswith("checkpoint_") and f.endswith(".pt")]
-    if not candidates:
-        raise FileNotFoundError(f"No model checkpoint found in {checkpoint_dir}")
-    candidates.sort()
-    return os.path.join(checkpoint_dir, candidates[-1])
+    if candidates:
+        candidates.sort()
+        return os.path.join(checkpoint_dir, candidates[-1])
+
+    # Fallback to preview_checkpoint.pt (written every N iters during training)
+    preview = os.path.join(checkpoint_dir, "preview_checkpoint.pt")
+    if os.path.exists(preview):
+        return preview
+
+    raise FileNotFoundError(f"No model checkpoint found in {checkpoint_dir}")
 
 
 def _w2c_from_c2w(c2w: torch.Tensor) -> torch.Tensor:

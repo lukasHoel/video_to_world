@@ -12,10 +12,38 @@ import tyro
 from configs.utils import ViewGSCheckpointConfig
 from data.data_loading import load_da3_camera_images
 from eval_gs import EvalGSConfig, _build_model, _find_checkpoint_path
+from utils.export_checkpoint_to_ply import export_model_to_files
 from utils.logging import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def _find_latest_checkpoint(checkpoint_dir: str) -> str | None:
+    """Newest GS checkpoint in a directory, by mtime.
+
+    Watches the same files train_gs writes: ``checkpoint_*.pt``,
+    ``preview_checkpoint.pt`` (live preview), ``checkpoint_paused.pt`` /
+    ``checkpoint_stopped.pt``, and ``model_final.pt``.
+    """
+    if not os.path.isdir(checkpoint_dir):
+        return None
+    candidates = []
+    for name in os.listdir(checkpoint_dir):
+        if not name.endswith(".pt"):
+            continue
+        if not (
+            name.startswith("checkpoint_")
+            or name.startswith("preview_checkpoint")
+            or name == "model_final.pt"
+        ):
+            continue
+        path = os.path.join(checkpoint_dir, name)
+        candidates.append((os.path.getmtime(path), path))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: t[0])
+    return candidates[-1][1]
 
 
 def _depth_to_color(depth_norm: torch.Tensor) -> torch.Tensor:
@@ -67,28 +95,91 @@ def _add_camera_frames(
     *,
     scale: float,
     group: str = "/cameras_training",
-) -> None:
-    """Add camera coordinate frames (axes) to the viser scene."""
+) -> list:
+    """Add camera coordinate frames (axes) to the viser scene. Returns handles."""
+    handles = []
     for i, c2w in enumerate(c2w_list):
         c2w_np = c2w.detach().cpu().numpy()
         wxyz = np.array(_rotation_matrix_to_wxyz(c2w_np[:3, :3]), dtype=np.float32)
         position = c2w_np[:3, 3].astype(np.float32)
-        server.scene.add_frame(
-            f"{group}/cam_{i:04d}",
-            wxyz=wxyz,
-            position=position,
-            axes_length=float(scale),
-            axes_radius=float(scale) * 0.05,
+        handles.append(
+            server.scene.add_frame(
+                f"{group}/cam_{i:04d}",
+                wxyz=wxyz,
+                position=position,
+                axes_length=float(scale),
+                axes_radius=float(scale) * 0.05,
+            )
         )
+    return handles
+
+
+def _update_camera_frames(handles: list, c2w_list: list[torch.Tensor]) -> None:
+    """Reposition existing camera frames after a checkpoint hot-reload."""
+    for i, handle in enumerate(handles):
+        if i >= len(c2w_list):
+            break
+        c2w_np = c2w_list[i].detach().cpu().numpy()
+        handle.wxyz = np.array(_rotation_matrix_to_wxyz(c2w_np[:3, :3]), dtype=np.float32)
+        handle.position = c2w_np[:3, 3].astype(np.float32)
+
+
+def _load_state_into_model(model, ckpt_path: str, device: str) -> None:
+    """Load a (possibly partial) checkpoint state dict into an existing model."""
+    state = torch.load(ckpt_path, map_location=device, weights_only=False)
+    model.load_state_dict(state, strict=False)
+    model.eval()
+
+
+def _refresh_render_holder(model, holder: dict) -> None:
+    """Re-extract splat tensors from a (possibly hot-reloaded) model."""
+    holder["means"] = model.canonical_points.detach()
+    holder["quats"] = F.normalize(model.quats.detach(), p=2, dim=-1)
+    holder["scales"] = model.log_scales.detach().exp()
+    holder["opacities"] = torch.sigmoid(model.logit_opacities.detach()).squeeze(-1)
+    holder["colors"] = model.sh_coeffs.detach()
+
+
+def _export_loaded_state(config: ViewGSCheckpointConfig, model, renderer_type: str, write_both: bool = False) -> None:
+    """Export the currently loaded model to PLY / .splat in the checkpoint dir."""
+    requested = config.export_on_load or write_both
+    if not requested:
+        return
+    if write_both:
+        formats = ("ply", "splat")
+    else:
+        formats = ("ply", "splat") if config.export_on_load == "both" else (config.export_on_load,)
+    try:
+        for fmt in formats:
+            out_path = os.path.join(config.checkpoint_dir, f"splats_{renderer_type}.{fmt}")
+            if fmt == "ply":
+                export_model_to_files(model, renderer=renderer_type, out_ply=out_path, out_splat=None)
+            else:
+                export_model_to_files(model, renderer=renderer_type, out_ply=None, out_splat=out_path)
+            logger.info("Exported current state to %s", out_path)
+    except Exception as exc:
+        logger.error("Export on load failed: %s", exc)
 
 
 @torch.no_grad()
 def main(config: ViewGSCheckpointConfig) -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    ckpt_path = _find_checkpoint_path(config.checkpoint_dir)
+    if not os.path.isdir(config.checkpoint_dir):
+        if config.watch and config.wait_for_first:
+            os.makedirs(config.checkpoint_dir, exist_ok=True)
+        else:
+            raise FileNotFoundError(f"Checkpoint directory not found: {config.checkpoint_dir}")
+
+    # In watch mode with wait_for_first, poll until a checkpoint appears.
+    ckpt_path = _find_latest_checkpoint(config.checkpoint_dir)
+    while ckpt_path is None and config.watch and config.wait_for_first:
+        logger.info("Waiting for first checkpoint in %s ...", config.checkpoint_dir)
+        time.sleep(config.watch_interval)
+        ckpt_path = _find_latest_checkpoint(config.checkpoint_dir)
+    if ckpt_path is None:
+        ckpt_path = _find_checkpoint_path(config.checkpoint_dir)
     logger.info("Loading checkpoint: %s", ckpt_path)
-    state = torch.load(ckpt_path, map_location=device, weights_only=False)
 
     # Need a rendering resolution to construct the model. Use DA3 exports (cheap).
     images, poses_c2w, intrinsics = load_da3_camera_images(
@@ -113,8 +204,11 @@ def main(config: ViewGSCheckpointConfig) -> None:
         save_video=False,
     )
     model = _build_model(eval_cfg, device, height=H, width=W)
-    model.load_state_dict(state, strict=False)
-    model.eval()
+    _load_state_into_model(model, ckpt_path, device)
+
+    # Mutable holder so the render_fn closure sees hot-reloaded tensors.
+    render_holder: dict = {}
+    _refresh_render_holder(model, render_holder)
 
     # -------------------------------------------------------------------------
     # Viser + nerfview viewer (interactive rendering, like old repo scripts)
@@ -130,12 +224,6 @@ def main(config: ViewGSCheckpointConfig) -> None:
 
     renderer_type = model.renderer_type
     logger.info("Checkpoint renderer: %s (sh_degree=%d)", renderer_type, int(model.sh_degree))
-
-    means_full = model.canonical_points.detach()
-    quats_full = F.normalize(model.quats.detach(), p=2, dim=-1)
-    scales_full = model.log_scales.detach().exp()
-    opacities_full = torch.sigmoid(model.logit_opacities.detach()).squeeze(-1)
-    colors_full = model.sh_coeffs.detach()  # (N, K, 3) for both 2DGS/3DGS
 
     class ViewerGSRenderTabState(RenderTabState):
         total_gs_count: int = 0
@@ -260,6 +348,13 @@ def main(config: ViewGSCheckpointConfig) -> None:
     @torch.no_grad()
     def render_fn(camera_state: CameraState, render_tab_state: RenderTabState) -> np.ndarray:
         assert isinstance(render_tab_state, ViewerGSRenderTabState)
+
+        # Hot-swappable tensors (updated in place on checkpoint hot-reload).
+        means_full = render_holder["means"]
+        quats_full = render_holder["quats"]
+        scales_full = render_holder["scales"]
+        opacities_full = render_holder["opacities"]
+        colors_full = render_holder["colors"]
 
         if render_tab_state.preview_render:
             width = int(render_tab_state.render_width)
@@ -393,10 +488,11 @@ def main(config: ViewGSCheckpointConfig) -> None:
     server = viser.ViserServer(port=int(config.port), verbose=False)
 
     # Add training camera frames if available (from optimised per_frame_c2w).
+    camera_handles = []
     if bool(config.show_cameras):
         c2w_list = [model.get_c2w(i).detach().cpu() for i in range(len(model.per_frame_c2w))]
         if c2w_list:
-            _add_camera_frames(
+            camera_handles = _add_camera_frames(
                 server,
                 c2w_list,
                 scale=float(config.training_cameras_scale),
@@ -404,7 +500,7 @@ def main(config: ViewGSCheckpointConfig) -> None:
             )
 
     # Viewer output dir (screenshots / camera paths) lives next to checkpoint.
-    output_dir = Path(os.path.dirname(ckpt_path))
+    output_dir = Path(config.checkpoint_dir)
     viewer = ViewerGS(
         server=server,
         render_fn=render_fn,
@@ -419,10 +515,63 @@ def main(config: ViewGSCheckpointConfig) -> None:
         viewer.render_tab_state.rasterize_mode = "classic"
         viewer.render_tab_state.max_sh_degree = int(model.sh_degree)
 
+    _export_loaded_state(config, model, renderer_type)
+
     logger.info("Viewer running on http://localhost:%d — Ctrl+C to exit.", int(config.port))
+    if not config.watch:
+        try:
+            while True:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            logger.info("Shutting down.")
+        return
+
+    # ---------------------------------------------------------------------
+    # Watch mode: poll for new checkpoints and hot-reload.
+    # ---------------------------------------------------------------------
+    current_path = ckpt_path
+    export_request_path = os.path.join(config.checkpoint_dir, "EXPORT_REQUEST")
+    logger.info(
+        "Watch mode active (poll every %.1fs) on %s — new checkpoints will "
+        "hot-reload automatically.",
+        config.watch_interval,
+        config.checkpoint_dir,
+    )
     try:
         while True:
-            time.sleep(1.0)
+            time.sleep(config.watch_interval)
+
+            # UI "Export Current" sentinel: export the in-memory state.
+            if os.path.exists(export_request_path):
+                try:
+                    _export_loaded_state(config, model, renderer_type, write_both=True)
+                    logger.info("EXPORT_REQUEST handled — exported current state.")
+                finally:
+                    try:
+                        os.remove(export_request_path)
+                    except OSError:
+                        pass
+
+            latest = _find_latest_checkpoint(config.checkpoint_dir)
+            if latest is None:
+                continue
+            mtime_latest = os.path.getmtime(latest)
+            mtime_current = os.path.getmtime(current_path) if os.path.exists(current_path) else -1
+            if mtime_latest <= mtime_current:
+                continue
+            logger.info("New checkpoint detected: %s (reloading...)", latest)
+            _load_state_into_model(model, latest, device)
+            _refresh_render_holder(model, render_holder)
+            if bool(config.show_cameras) and camera_handles:
+                c2w_list = [model.get_c2w(i).detach().cpu() for i in range(len(model.per_frame_c2w))]
+                _update_camera_frames(camera_handles, c2w_list)
+            _export_loaded_state(config, model, renderer_type)
+            viewer.render_tab_state.total_gs_count = int(render_holder["means"].shape[0])
+            current_path = latest
+            try:
+                viewer.rerender(None)
+            except Exception as exc:
+                logger.warning("Failed to trigger rerender: %s", exc)
     except KeyboardInterrupt:
         logger.info("Shutting down.")
 

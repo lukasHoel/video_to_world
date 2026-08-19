@@ -94,3 +94,43 @@ class GSConfig(TensorboardConfig):
 
     # ---- Evaluation ----
     auto_eval: bool = True
+
+    # ---- Live control (pause / resume / stop-early / preview saves) ----
+    pause_request_file: str = "PAUSE_REQUESTED"
+    """Filename (inside `out_dir`) that requests a pause. While this file exists,
+    training saves a `checkpoint_paused.pt`, exports the current state, and waits.
+    Delete the file (or create `resume_request_file`) to resume."""
+
+    resume_request_file: str = "RESUME_REQUESTED"
+    """Filename (inside `out_dir`) that requests a resume from a pause."""
+
+    stop_request_file: str = "STOP_REQUESTED"
+    """Filename (inside `out_dir`) that requests early finalization. When present,
+    training saves `checkpoint_stopped.pt`, exports the current state, breaks out of
+    the loop, and runs the normal finalization (model_final.pt + export)."""
+
+    control_check_every: int = 25
+    """Check the control sentinel files every N iterations."""
+
+    checkpoint_request_file: str = "CHECKPOINT_REQUESTED"
+    """Filename (inside `out_dir`) that requests an on-demand checkpoint save + export
+    WITHOUT pausing training. Training continues immediately after saving."""
+
+    preview_save_every: int = 100
+    """Save a lightweight `preview_checkpoint.pt` (latest-only, overwritten) every N
+    iterations for live viewing. 0 disables preview saves."""
+
+    # ---- Auto viewer (viser/nerfview live 3D) ----
+    auto_viewer: bool = True
+    """Automatically launch the interactive 3D viewer (viser) when GS training starts.
+    The viewer opens in watch mode and hot-reloads as checkpoints are saved."""
+
+    viewer_port: int = 8080
+    """Port for the auto-launched 3D viewer server."""
+
+    viewer_host: str = "0.0.0.0"
+    """Host address for the auto-launched 3D viewer server."""
+
+    skip_auto_eval_on_stop: bool = True
+    """Skip the expensive automatic eval render when stopped early via
+    `stop_request_file` (the final model is still saved + exported)."""

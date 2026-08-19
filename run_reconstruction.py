@@ -26,6 +26,7 @@ from configs.stage1_align import FrameToModelICPConfig
 from configs.stage2_global_optimization import GlobalOptimizationConfig
 from configs.stage3_gs import GSConfig
 from configs.stage3_inverse_deformation import TrainInverseDeformationConfig
+from configs.utils import ExportGSCheckpointToPlyConfig
 
 
 @dataclass
@@ -114,11 +115,61 @@ class PipelineConfig:
     gs: GSConfig = field(default_factory=GSConfig)
     """Stage 3.2: Gaussian splatting training (base config, renderer set per run)."""
 
+    export_supersplat: bool = True
+    """After GS training, export SuperSplat-compatible Gaussian splats (.ply + .splat)
+    into each `gs_<renderer>/` checkpoint directory (see `utils.export_checkpoint_to_ply`)."""
+
+    export_max_points: int = -1
+    """If > 0, subsample exported splats to at most this many points (SuperSplat-friendly size)."""
+
     dry_run: bool = False
     """Print commands without executing."""
 
 
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _launch_viewer_for_gs(
+    gs_cfg,
+    port: int = 8080,
+    host: str = "0.0.0.0",
+) -> subprocess.Popen | None:
+    """Launch the interactive 3D viewer in watch mode for a GS checkpoint directory.
+
+    Returns the viewer subprocess, or None if launch failed.
+    """
+    out_dir = gs_cfg.out_dir or os.path.join(
+        gs_cfg.root_path, gs_cfg.run, f"gs_{gs_cfg.renderer}"
+    )
+    cmd = [
+        sys.executable, "-m", "utils.view_checkpoint",
+        "--config.root-path", gs_cfg.root_path,
+        "--config.run", gs_cfg.run,
+        "--config.checkpoint-dir", out_dir,
+        "--config.port", str(port),
+        "--config.watch",
+        "--config.wait-for-first",
+        "--config.watch-interval", "2.0",
+        "--config.show-cameras",
+    ]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=_PROJECT_ROOT,
+        )
+        print(
+            f"[VIEWER] 3D viewer launched on http://{host}:{port} "
+            f"(watching {out_dir})"
+        )
+        return proc
+    except Exception as exc:
+        print(f"[VIEWER] Failed to launch viewer: {exc}")
+        return None
 
 
 def _run(cmd: list[str], dry_run: bool = False) -> None:
@@ -408,7 +459,10 @@ def main(config: PipelineConfig) -> None:
     print(f"[PIPELINE] Using inverse deformation: {inverse_deform_dir}")
 
     # ---- Stage 3.2: Gaussian Splatting ----
+    viewer_proc = None
+
     def _run_gs(renderer: str):
+        nonlocal viewer_proc
         print(f"[PIPELINE] === Stage 3.2: {renderer.upper()} Training ===")
         # Respect explicit CLI overrides: only inject defaults if the user didn't set a value.
         default_gs = GSConfig()
@@ -433,6 +487,18 @@ def main(config: PipelineConfig) -> None:
             default_orig_dir = os.path.join(root_path, "frames_subsampled")
             if os.path.isdir(default_orig_dir):
                 gs_cfg = replace(gs_cfg, original_images_dir=default_orig_dir)
+
+        # Auto-launch the interactive 3D viewer before training starts.
+        if gs_cfg.auto_viewer and not config.dry_run:
+            if viewer_proc is None or viewer_proc.poll() is not None:
+                viewer_proc = _launch_viewer_for_gs(
+                    gs_cfg,
+                    port=gs_cfg.viewer_port,
+                    host=gs_cfg.viewer_host,
+                )
+            else:
+                print("[VIEWER] Viewer already running — skipping launch.")
+
         stage32_cmd = [python, "-m", "train_gs"]
         stage32_cmd += list(
             _iter_config_overrides(
@@ -443,10 +509,40 @@ def main(config: PipelineConfig) -> None:
         )
         _run(stage32_cmd, config.dry_run)
 
+        if config.export_supersplat:
+            print(f"[PIPELINE] === Stage 3.3: Export SuperSplat splats ({renderer.upper()}) ===")
+            gs_out_dir = os.path.join(root_path, run_name, f"gs_{renderer}")
+            export_cfg = ExportGSCheckpointToPlyConfig(
+                root_path=root_path,
+                run=run_name,
+                checkpoint_dir=gs_out_dir,
+                global_opt_subdir=gs_global_opt_subdir,
+                format="both",
+                max_points=config.export_max_points,
+            )
+            export_cmd = [python, "-m", "utils.export_checkpoint_to_ply"]
+            export_cmd += list(
+                _iter_config_overrides(
+                    prefix="config",
+                    cfg=export_cfg,
+                    defaults=ExportGSCheckpointToPlyConfig(),
+                )
+            )
+            _run(export_cmd, config.dry_run)
+
     if "2dgs" in effective_renderers:
         _run_gs("2dgs")
     if "3dgs" in effective_renderers:
         _run_gs("3dgs")
+
+    # Clean up the auto-launched viewer process.
+    if viewer_proc is not None and viewer_proc.poll() is None:
+        print("[VIEWER] Stopping 3D viewer...")
+        try:
+            viewer_proc.terminate()
+            viewer_proc.wait(timeout=5)
+        except Exception:
+            viewer_proc.kill()
 
     print(f"\n[PIPELINE] Done! All outputs are in: {run_dir}")
 

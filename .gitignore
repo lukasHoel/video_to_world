@@ -33,3 +33,11 @@ third_party/
 
 # Logs
 *.log
+
+# Virtual environment
+env/
+venv/
+.venv/
+
+# Training outputs
+outputs/
